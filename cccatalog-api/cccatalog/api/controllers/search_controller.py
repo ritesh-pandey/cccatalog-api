@@ -75,7 +75,7 @@ def search(search_params, index, page_size, ip, page=1) -> Response:
             filter=Q(
                 'query_string',
                 query=search_params.data['q'],
-                fields=['tags.name', 'title'],
+                fields=['tags.name', 'title', 'creator'],
             )
         )
     else:
