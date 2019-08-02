@@ -3,7 +3,7 @@ import psycopg2
 import datetime
 import logging as log
 
-from ingestion_server.cleanup import clean_image_data
+from ingestion_server.cleanup import clean_image_data, clean_dump
 from ingestion_server.indexer import database_connect
 from psycopg2.extras import DictCursor
 
@@ -200,6 +200,11 @@ def _reload_upstream(table, progress=None, finish_time=None):
                    pwd=UPSTREAM_DB_PASSWORD, host=UPSTREAM_DB_HOST,
                    port=UPSTREAM_DB_PORT, table=table)
     os.system(dump_cmd)
+    dump_file = '/tmp/{table}_dump.sql'.format(table=table)
+    # Raw data scraped from the internet is often times not suitable for
+    # production use, so we have some cleaning to do before loading it into the
+    # API database.
+    clean_dump(dump_file)
 
 
 def reload_upstream(table, progress=None, finish_time=None):

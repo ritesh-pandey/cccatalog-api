@@ -235,6 +235,22 @@ def _clean_data_worker(rows, temp_table, providers_config):
     return True
 
 
+def clean_dump(dump_filename):
+
+    table_name = dump_filename.split('_')[0]
+    with open(dump_filename, 'r'), dump_filename as f:
+        # Seek to the data section of the table dump.
+        while True:
+            line = f.readline()
+            if not line:
+                log.error('Failed to parse SQL dump.')
+                return False
+            if 'COPY public.{}'.format(table_name) in line:
+                break
+        # Clean the data line by line.
+        row = f.readline()
+
+
 def clean_image_data(table, upstream_db):
     """
     Data from upstream can be unsuitable for production for a number of reasons.
