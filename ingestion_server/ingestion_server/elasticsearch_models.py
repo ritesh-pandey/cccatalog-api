@@ -1,6 +1,4 @@
 from elasticsearch_dsl import Date, Text, Integer, Nested, Keyword, DocType
-import json
-import logging
 
 """
 Provides an ORM-like experience for accessing data in Elasticsearch.
@@ -33,21 +31,6 @@ class SyncableDocType(DocType):
         raise NotImplemented(
             'Model is missing database -> Elasticsearch translation.'
         )
-
-
-def _parse_description(metadata_field):
-    """
-    Parse the description field from the metadata if available.
-
-    Limit to the first 2000 characters.
-    """
-    try:
-        if 'description' in metadata_field:
-            return metadata_field['description'][:2000]
-    except json.decoder.JSONDecodeError as e:
-        logging.error('Failed to parse json {}'.format(metadata_field))
-        logging.error(e)
-        return None
 
 
 class Image(SyncableDocType):
@@ -85,6 +68,13 @@ class Image(SyncableDocType):
                 return parsed_tags
             else:
                 return None
+
+        def _parse_description(metadata_field):
+            """
+            Limit the description to 2000 characters.
+            """
+            if 'description' in metadata_field:
+                return metadata_field['description'][:2000]
 
         return Image(
             _id=row[schema['id']],

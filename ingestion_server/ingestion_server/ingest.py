@@ -194,6 +194,14 @@ def _remap_constraint(name, con_table, fk_statement, table):
     return alterations
 
 
+def _reload_upstream(table, progress=None, finish_time=None):
+    dump_cmd = 'PGPASSWORD={pwd} pg_dump -h {host} -U deploy -d openledger' \
+               ' -p {port} -t {table} > /tmp/{table}_dump.sql'.format(
+                   pwd=UPSTREAM_DB_PASSWORD, host=UPSTREAM_DB_HOST,
+                   port=UPSTREAM_DB_PORT, table=table)
+    os.system(dump_cmd)
+
+
 def reload_upstream(table, progress=None, finish_time=None):
     """
     Import updates from the upstream CC Catalog database into the API.

@@ -1,11 +1,11 @@
-FROM python:3.7
+FROM python:3.7-buster
 
 ENV PYTHONBUFFERED 1
 
 RUN groupadd --system supervisord && useradd --system --gid supervisord supervisord
 
 RUN apt-get update \
-    && apt-get install -y supervisor \
+    && apt-get install -y supervisor postgresql \
     && mkdir -p /var/log/supervisord/ \
     && chown -R supervisord:supervisord /var/log/supervisord
 
@@ -20,7 +20,6 @@ WORKDIR /ingestion_server
 ENV PYTHONPATH=$PYTHONPATH:/ingestion_server/
 
 # Install the dependencies system-wide
-# TODO: Use build args to avoid installing dev dependencies in production
 RUN pipenv install --deploy --system --dev
 RUN chmod 777 /usr/local/lib/python3.7/site-packages/tld/res/effective_tld_names.dat.txt
 USER supervisord
