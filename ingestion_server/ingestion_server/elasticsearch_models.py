@@ -73,8 +73,11 @@ class Image(SyncableDocType):
             """
             Limit the description to 2000 characters.
             """
-            if 'description' in metadata_field:
-                return metadata_field['description'][:2000]
+            try:
+                if 'description' in metadata_field:
+                    return metadata_field['description'][:2000]
+            except TypeError:
+                return None
 
         return Image(
             _id=row[schema['id']],
