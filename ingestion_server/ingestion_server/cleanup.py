@@ -129,17 +129,13 @@ class CleanupFunctions:
 _cleanup_config = {
     'tables': {
         'image': {
-            'providers': {
-                # Applies to all providers.
-                '*': {
-                    'fields': {
-                        'tags': CleanupFunctions.cleanup_tags,
-                        'url': CleanupFunctions.cleanup_url,
-                        'creator_url': CleanupFunctions.cleanup_url,
-                        'foreign_landing_url': CleanupFunctions.cleanup_url,
-                        'thumbnail': CleanupFunctions.cleanup_url
-                    }
-                }
+            # Applies to all providers.
+            'fields': {
+                'tags': CleanupFunctions.cleanup_tags,
+                'url': CleanupFunctions.cleanup_url,
+                'creator_url': CleanupFunctions.cleanup_url,
+                'foreign_landing_url': CleanupFunctions.cleanup_url,
+                'thumbnail': CleanupFunctions.cleanup_url
             }
         }
     }
@@ -235,20 +231,50 @@ def _clean_data_worker(rows, temp_table, providers_config):
     return True
 
 
-def clean_dump(dump_filename):
+def _parse_copy_directive_fields(directive):
+    """
+    Parse the COPY(field1, field2, . . . field n) command.
+    """
+    fields_start = directive.find('(') + 1
+    fields_end = directive.find(')')
+    return directive[fields_start:fields_end].split(', ')
 
-    table_name = dump_filename.split('_')[0]
-    with open(dump_filename, 'r'), dump_filename as f:
+
+def clean_dump(dump_filename, table_name):
+    """
+    Given a psql .sql dump file, parse it and clean up the raw data according
+    to our custom rules.
+
+    :param dump_filename:
+    :param table_name:
+    :return:
+    """
+    cleaned_file = dump_filename + '_clean'
+    cleaning_rules = _cleanup_config['tables'][table_name]['fields']
+    with open(dump_filename, 'r') as f, open(cleaned_file, 'w+') as c:
         # Seek to the data section of the table dump.
+        header = None
         while True:
             line = f.readline()
+            c.write(line)
             if not line:
                 log.error('Failed to parse SQL dump.')
                 return False
             if 'COPY public.{}'.format(table_name) in line:
+                header = _parse_copy_directive_fields(line)
                 break
-        # Clean the data line by line.
-        row = f.readline()
+        # Clean the data line by line. Columns are delimited by tabs.
+        while True:
+            row = f.readline().rstrip().split('\t')
+            for idx, value in enumerate(row):
+                field_name = header[idx]
+                if field_name in cleaning_rules:
+
+
+
+            if line.rstrip() == '\.':
+                # We've reached the end of the data section.
+                break
 
 
 def clean_image_data(table, upstream_db):

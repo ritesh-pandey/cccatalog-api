@@ -194,20 +194,20 @@ def _remap_constraint(name, con_table, fk_statement, table):
     return alterations
 
 
-def _reload_upstream(table, progress=None, finish_time=None):
+def reload_upstream(table, progress=None, finish_time=None):
     dump_cmd = 'PGPASSWORD={pwd} pg_dump -h {host} -U deploy -d openledger' \
                ' -p {port} -t {table} > /tmp/{table}_dump.sql'.format(
                    pwd=UPSTREAM_DB_PASSWORD, host=UPSTREAM_DB_HOST,
                    port=UPSTREAM_DB_PORT, table=table)
-    os.system(dump_cmd)
+    res = os.system(dump_cmd)
     dump_file = '/tmp/{table}_dump.sql'.format(table=table)
     # Raw data scraped from the internet is often times not suitable for
     # production use, so we have some cleaning to do before loading it into the
     # API database.
-    clean_dump(dump_file)
+    clean_dump(dump_file, table)
 
 
-def reload_upstream(table, progress=None, finish_time=None):
+def _reload_upstream(table, progress=None, finish_time=None):
     """
     Import updates from the upstream CC Catalog database into the API.
 
