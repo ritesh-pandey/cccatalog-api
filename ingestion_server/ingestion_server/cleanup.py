@@ -3,7 +3,7 @@ import time
 import multiprocessing
 import uuid
 import requests as re
-import psycopg2
+import ast
 from psycopg2.extras import DictCursor, Json
 from ingestion_server.indexer import database_connect, DB_BUFFER_SIZE
 from urllib.parse import urlparse
@@ -93,7 +93,7 @@ class CleanupFunctions:
             else:
                 return "'http://{}'".format(url)
         else:
-            return None
+            return url
 
     @staticmethod
     def cleanup_tags(tags):
@@ -105,7 +105,9 @@ class CleanupFunctions:
         update_required = False
         tag_output = []
         if not tags:
-            return None
+            return tags
+        tags = tags.replace('\\\\', '\\')
+        tags = ast.literal_eval(tags)
         for tag in tags:
             below_threshold = False
             if 'accuracy' in tag and tag['accuracy'] < TAG_MIN_CONFIDENCE:
@@ -117,10 +119,10 @@ class CleanupFunctions:
                 update_required = True
 
         if update_required:
-            fragment = Json(tag_output)
+            fragment = str(tag_output)
             return fragment
         else:
-            return None
+            return str(tags)
 
 
 # Define which tables, providers, and fields require cleanup. Map the field
@@ -169,68 +171,6 @@ class TlsTest:
         return True
 
 
-def _clean_data_worker(rows, temp_table, providers_config):
-    log.info('Starting data cleaning worker')
-    global_field_to_func = providers_config['*']['fields']
-    worker_conn = database_connect()
-    log.info('Data cleaning worker connected to database')
-    write_cur = worker_conn.cursor(cursor_factory=DictCursor)
-    log.info('Cleaning {} rows'.format(len(rows)))
-    tls_cache = {}
-    start_time = time.time()
-    for row in rows:
-        # Map fields that need updating to their cleaning functions
-        provider = row['provider']
-        _id = row['id']
-        if provider in providers_config:
-            provider_field_to_func = providers_config[provider]['fields']
-            # Merge provider-local and global function field mappings
-            fields_to_update = \
-                {**global_field_to_func, **provider_field_to_func}
-        else:
-            fields_to_update = global_field_to_func
-        # Map fields to their cleaned data
-        cleaned_data = {}
-        for update_field in fields_to_update:
-            dirty_value = row[update_field]
-            if not dirty_value:
-                continue
-            cleaning_func = fields_to_update[update_field]
-            if cleaning_func == CleanupFunctions.cleanup_url:
-                clean = cleaning_func(url=dirty_value, tls_support=tls_cache)
-            else:
-                clean = cleaning_func(dirty_value)
-            if clean:
-                cleaned_data[update_field] = clean
-        # Generate SQL update for all the fields we just cleaned
-        update_field_expressions = []
-        for field in cleaned_data:
-            update_field_expressions.append(
-                '{field} = {cleaned}'.format(
-                    field=field,
-                    cleaned=cleaned_data[field]
-                )
-            )
-        if len(update_field_expressions) > 0:
-            update_query = '''
-                UPDATE {temp_table} SET {field_expressions} WHERE id = {_id}
-            '''.format(
-                temp_table=temp_table,
-                field_expressions=', '.join(update_field_expressions),
-                _id=_id
-            )
-            write_cur.execute(update_query)
-    log.info('TLS cache: {}'.format(tls_cache))
-    log.info('Worker committing changes...')
-    worker_conn.commit()
-    write_cur.close()
-    worker_conn.close()
-    end_time = time.time()
-    total_time = end_time - start_time
-    log.info('Worker finished batch in {}'.format(total_time))
-    return True
-
-
 def _parse_copy_directive_fields(directive):
     """
     Parse the COPY(field1, field2, . . . field n) command.
@@ -251,9 +191,10 @@ def clean_dump(dump_filename, table_name):
     """
     cleaned_file = dump_filename + '_clean'
     cleaning_rules = _cleanup_config['tables'][table_name]['fields']
+    tls_cache = {}
+    progress = 0
     with open(dump_filename, 'r') as f, open(cleaned_file, 'w+') as c:
         # Seek to the data section of the table dump.
-        header = None
         while True:
             line = f.readline()
             c.write(line)
@@ -265,100 +206,39 @@ def clean_dump(dump_filename, table_name):
                 break
         # Clean the data line by line. Columns are delimited by tabs.
         while True:
-            row = f.readline().rstrip().split('\t')
-            for idx, value in enumerate(row):
-                field_name = header[idx]
-                if field_name in cleaning_rules:
-
-
-
-            if line.rstrip() == '\.':
+            line = f.readline().rstrip()
+            if line == '\.':
                 # We've reached the end of the data section.
+                break
+            row = line.split('\t')
+            cleaned_row = []
+            for idx, value in enumerate(row):
+                if value == '\\N':
+                    value = None
+                field_name = header[idx]
+                if value and field_name in cleaning_rules:
+                    cleaning_func = cleaning_rules[field_name]
+                    if cleaning_func == CleanupFunctions.cleanup_url:
+                        clean = cleaning_func(
+                            url=value, tls_support=tls_cache
+                        )
+                    else:
+                        clean = cleaning_func(value)
+                    cleaned_row.append(clean)
+                elif not value:
+                    cleaned_row.append('\\\\N')
+                else:
+                    cleaned_row.append(value)
+            cleaned_row_str = '\t'.join(cleaned_row)
+            c.write(cleaned_row_str)
+            progress += 1
+            if progress % 1000000 == 0:
+                log.info('Cleaned {} rows so far'.format(progress))
+        # Copy the rest of the file.
+        while True:
+            line = f.readline()
+            c.write(line)
+            if not line:
                 break
 
 
-def clean_image_data(table, upstream_db):
-    """
-    Data from upstream can be unsuitable for production for a number of reasons.
-    Clean it up before we go live with the new data.
-
-    :param table: The staging table for the new data
-    :param upstream_db: A dict specifying the connection details of the upstream
-    database.
-    :return: None
-    """
-    # Map each table to the fields that need to be cleaned up. Then, map each
-    # field to its cleanup function.
-    log.info('Cleaning up data...')
-    start_time = time.time()
-    table_config = _cleanup_config['tables'][table]
-
-    # Pull data from selected providers only.
-    providers = list(_cleanup_config['tables'][table]['providers'])
-
-    # Determine which fields will need updating
-    fields_to_clean = set()
-    for p in providers:
-        _fields = list(table_config['providers'][p]['fields'])
-        for f in _fields:
-            fields_to_clean.add(f)
-
-    cleanup_selection = "SELECT id, provider, {fields} from {table}".format(
-                            fields=', '.join(fields_to_clean),
-                            table='temp_import_{}'.format(table),
-                        )
-    log.info('Running cleanup on selection "{}"'.format(cleanup_selection))
-    conn = database_connect(autocommit=True)
-    cursor_name = '{}-{}'.format(table, str(uuid.uuid4()))
-    with conn.cursor(
-            name=cursor_name, cursor_factory=DictCursor, withhold=True
-    ) as iter_cur:
-        iter_cur.itersize = CLEANUP_BUFFER_SIZE
-        iter_cur.execute(cleanup_selection)
-
-        # Clean each field as specified in _cleanup_config.
-        provider_config = table_config['providers']
-
-        log.info('Fetching first batch')
-        batch = iter_cur.fetchmany(size=CLEANUP_BUFFER_SIZE)
-        jobs = []
-        num_workers = multiprocessing.cpu_count()
-        num_cleaned = 0
-        while batch:
-            # Divide updates into jobs for parallel execution.
-            start = time.time()
-            temp_table = 'temp_import_{}'.format(table)
-            job_size = int(len(batch) / num_workers)
-            last_end = -1
-            log.info('Dividing work')
-            for n in range(1, num_workers + 1):
-                log.info('Scheduling job {}'.format(n))
-                start = last_end + 1
-                end = job_size * n
-                last_end = end
-                # Arguments for parallel _clean_data_worker calls
-                jobs.append(
-                    (batch[start:end], temp_table, provider_config)
-                )
-            pool = multiprocessing.Pool(processes=num_workers)
-            log.info('Starting {} cleaning jobs'.format(len(jobs)))
-            conn.commit()
-            pool.starmap(_clean_data_worker, jobs)
-            pool.close()
-            num_cleaned += len(batch)
-            end = time.time()
-            rate = len(batch) / (end - start)
-            log.info('Batch finished, records/s: cleanup_rate={}'.format(rate))
-            log.info(
-                'Fetching next batch. Num records cleaned so far: {}'
-                .format(num_cleaned))
-            jobs = []
-            batch = iter_cur.fetchmany(size=CLEANUP_BUFFER_SIZE)
-    conn.commit()
-    iter_cur.close()
-    conn.close()
-    end_time = time.time()
-    cleanup_time = end_time - start_time
-    log.info('Cleaned all records in {} seconds'.format(
-        cleanup_time)
-    )

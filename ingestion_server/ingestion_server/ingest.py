@@ -3,7 +3,7 @@ import psycopg2
 import datetime
 import logging as log
 
-from ingestion_server.cleanup import clean_image_data, clean_dump
+from ingestion_server.cleanup import clean_dump
 from ingestion_server.indexer import database_connect
 from psycopg2.extras import DictCursor
 
