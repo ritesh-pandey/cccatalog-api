@@ -1,10 +1,8 @@
 import logging as log
-import time
-import multiprocessing
-import uuid
 import requests as re
+import json
 import ast
-from psycopg2.extras import DictCursor, Json
+import random
 from ingestion_server.indexer import database_connect, DB_BUFFER_SIZE
 from urllib.parse import urlparse
 from tld import get_tld
@@ -60,6 +58,10 @@ def _tag_blacklisted(tag):
     return False
 
 
+def _jsonify(_json):
+    return str(json.loads(_json))
+
+
 class CleanupFunctions:
     """
     A cleanup function takes one parameter and returns the "cleaned" version if
@@ -106,8 +108,12 @@ class CleanupFunctions:
         tag_output = []
         if not tags:
             return tags
-        tags = tags.replace('\\\\', '\\')
-        tags = ast.literal_eval(tags)
+
+        try:
+            tags = ast.literal_eval(tags)
+        except SyntaxError:
+            log.warning('Skipped invalid json')
+            return '\\N'
         for tag in tags:
             below_threshold = False
             if 'accuracy' in tag and tag['accuracy'] < TAG_MIN_CONFIDENCE:
@@ -119,10 +125,10 @@ class CleanupFunctions:
                 update_required = True
 
         if update_required:
-            fragment = str(tag_output)
+            fragment = json.dumps(tag_output)
             return fragment
         else:
-            return str(tags)
+            return json.dumps(tag_output)
 
 
 # Define which tables, providers, and fields require cleanup. Map the field
@@ -180,6 +186,39 @@ def _parse_copy_directive_fields(directive):
     return directive[fields_start:fields_end].split(', ')
 
 
+def _write_wrapper(line, table_name, file_handle):
+    """
+    We want to load the cleaned data to a temporary table. As a result, we have
+    to rename the table in any SQL statements where it appears.
+
+    Additionally, in Postgres, indices have global names. To prevent collisions,
+    we have to strip the name and let Postgres come up with one itself.
+
+    :param line: A line containing a sql statement.
+    :param table_name: The ORIGINAL name of the table.
+    :param file_handle: The file to write the updated SQL statement to.
+    """
+    # Rename to temporary table.
+    updated = line.replace(
+        'public.{}'.format(table_name),
+        'public.temp_import_{}'.format(table_name)
+    )
+    # Remove index and constraint names.
+    parsed = updated.split(' ')
+    if 'CREATE INDEX' in updated:
+        del parsed[2]
+    elif 'ADD CONSTRAINT' in updated:
+        location = parsed.index('CONSTRAINT')
+        parsed[location + 1] = '"' + ''.join(
+            random.choice('0123456789ABCDEF') for _ in range(8)
+        ) + '"'
+    elif 'CREATE UNIQUE INDEX' in updated:
+        del parsed[3]
+    updated = ' '.join(parsed)
+
+    file_handle.write(updated)
+
+
 def clean_dump(dump_filename, table_name):
     """
     Given a psql .sql dump file, parse it and clean up the raw data according
@@ -197,7 +236,7 @@ def clean_dump(dump_filename, table_name):
         # Seek to the data section of the table dump.
         while True:
             line = f.readline()
-            c.write(line)
+            _write_wrapper(line, table_name, c)
             if not line:
                 log.error('Failed to parse SQL dump.')
                 return False
@@ -209,6 +248,7 @@ def clean_dump(dump_filename, table_name):
             line = f.readline().rstrip()
             if line == '\.':
                 # We've reached the end of the data section.
+                c.write('\.\n')
                 break
             row = line.split('\t')
             cleaned_row = []
@@ -226,19 +266,11 @@ def clean_dump(dump_filename, table_name):
                         clean = cleaning_func(value)
                     cleaned_row.append(clean)
                 elif not value:
-                    cleaned_row.append('\\\\N')
+                    cleaned_row.append('\\N')
                 else:
                     cleaned_row.append(value)
             cleaned_row_str = '\t'.join(cleaned_row)
-            c.write(cleaned_row_str)
+            c.write(cleaned_row_str + '\n')
             progress += 1
             if progress % 1000000 == 0:
                 log.info('Cleaned {} rows so far'.format(progress))
-        # Copy the rest of the file.
-        while True:
-            line = f.readline()
-            c.write(line)
-            if not line:
-                break
-
-

@@ -199,12 +199,48 @@ def reload_upstream(table, progress=None, finish_time=None):
                ' -p {port} -t {table} > /tmp/{table}_dump.sql'.format(
                    pwd=UPSTREAM_DB_PASSWORD, host=UPSTREAM_DB_HOST,
                    port=UPSTREAM_DB_PORT, table=table)
-    res = os.system(dump_cmd)
+    os.system(dump_cmd)
     dump_file = '/tmp/{table}_dump.sql'.format(table=table)
+    downstream_db = database_connect()
+    with downstream_db.cursor() as downstream_cur:
+        downstream_cur.execute(
+            "DROP TABLE IF EXISTS public.temp_import_{}".format(table)
+        )
+    downstream_db.commit()
     # Raw data scraped from the internet is often times not suitable for
     # production use, so we have some cleaning to do before loading it into the
     # API database.
+    log.info('Cleaning data...')
     clean_dump(dump_file, table)
+    load_cleaned_cmd = 'cat /tmp/{table}_dump.sql_clean | PGPASSWORD={pwd} ' \
+                       'psql -h {host} -U deploy -d openledger -p {port}' \
+                       .format(
+                           pwd=UPSTREAM_DB_PASSWORD, host=UPSTREAM_DB_HOST,
+                           port=UPSTREAM_DB_PORT, table=table)
+    log.info('Loading the cleaned data...')
+    os.system(load_cleaned_cmd)
+    create_indices = ';\n'.join(_generate_indices(downstream_db, table))
+    remap_constraints = ';\n'.join(_generate_constraints(downstream_db, table))
+    go_live = '''
+        DROP TABLE {table};
+        ALTER TABLE temp_import_{table} RENAME TO {table};
+    '''.format(table=table)
+    with downstream_db.cursor() as downstream_cur:
+        log.info('Cleaning and loading finished! Creating database indices...')
+        _update_progress(progress, 50.0)
+        if create_indices != '':
+            downstream_cur.execute(create_indices)
+        _update_progress(progress, 70.0)
+        log.info('Done creating indices! Remapping constraints...')
+        if remap_constraints != '':
+            downstream_cur.execute(remap_constraints)
+        _update_progress(progress, 99.0)
+        log.info('Done remapping constraints! Going live with new table...')
+        downstream_cur.execute(go_live)
+    downstream_db.commit()
+    downstream_db.close()
+    if finish_time:
+        finish_time.value = datetime.datetime.utcnow().timestamp()
 
 
 def _reload_upstream(table, progress=None, finish_time=None):
