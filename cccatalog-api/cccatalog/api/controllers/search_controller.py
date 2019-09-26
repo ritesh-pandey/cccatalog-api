@@ -8,6 +8,7 @@ from cccatalog import settings
 from django.core.cache import cache
 from cccatalog.api.models import ContentProvider
 from rest_framework import serializers
+from cccatalog.api.utils.validate_images import validate_images
 import logging as log
 
 ELASTICSEARCH_MAX_RESULT_WINDOW = 10000
@@ -53,7 +54,50 @@ def _quote_escape(query_string):
         return query_string
 
 
-def search(search_params, index, page_size, ip, page=1) -> Response:
+def _get_dead_items(s: Search, start_page, page_size):
+    """
+    Given a search object, look ahead several pages and check that the links
+    are still valid. Return a list of broken links, which can then subsequently
+    be excluded from the search results.
+
+    :param s:
+    :return: A list of UUIDs with broken links.
+    """
+    start_slice = page_size * (start_page - 1)
+    end_slice = page_size * 3
+    _s = s[start_slice:end_slice]
+    unfiltered_links = _s.execute()
+    image_urls = [res.url for res in unfiltered_links]
+    image_ids = [res.identifier for res in unfiltered_links]
+    broken_ids = validate_images(image_urls, image_ids)
+    return broken_ids
+
+
+def _exclude_id_list(s: Search, identifiers: list):
+    """
+    Exclude a list of identifiers from a search query.
+    """
+    if len(identifiers) == 0:
+        return s
+    log.info('Excluding from search: {}'.format(identifiers))
+    s = s.exclude('terms', identifier__keyword=identifiers)
+    return s
+
+
+def _exclude_dead(s: Search, start_page, page_size):
+    """
+    Given a search query, filter out the dead links.
+    :param s:
+    :param start_page:
+    :param page_size:
+    :return:
+    """
+    dead = _get_dead_items(s, start_page, page_size)
+    s = _exclude_id_list(s, dead)
+    return s
+
+
+def search(search_params, index, page_size, ip, filter_rot, page=1) -> Response:
     """
     Given a set of keywords and an optional set of filters, perform a ranked
     paginated search.
@@ -66,6 +110,7 @@ def search(search_params, index, page_size, ip, page=1) -> Response:
     :param ip: The user's hashed IP. Hashed IPs are used to anonymously but
     uniquely identify users exclusively for ensuring query consistency across
     Elasticsearch shards.
+    :param filter_rot: Whether to filter dead links
     :return: An Elasticsearch Response object.
     """
     s = Search(index=index)
@@ -140,6 +185,8 @@ def search(search_params, index, page_size, ip, page=1) -> Response:
     # Route users to the same Elasticsearch worker node to reduce
     # pagination inconsistencies and increase cache hits.
     s = s.params(preference=str(ip))
+    if filter_rot:
+        s = _exclude_dead(s, page, page_size)
     search_response = s.execute()
     return search_response
 

@@ -72,7 +72,7 @@ def _get_page_count(search_results, page_size):
     return page_count
 
 
-def _post_process_results(search_results, request, filter_dead):
+def _post_process_results(search_results, request):
     """
     After fetching the search results from the back end, iterate through the
     results, add links to detail views, perform image validation, and route
@@ -81,10 +81,8 @@ def _post_process_results(search_results, request, filter_dead):
     results.
     :param request: The Django request object, used to build a "reversed" URL
     to detail pages.
-    :param filter_dead: Whether images should be validated.
     """
     results = []
-    to_validate = []
     for res in search_results:
         url = request.build_absolute_uri(
             reverse('image-detail', [res.identifier])
@@ -92,7 +90,6 @@ def _post_process_results(search_results, request, filter_dead):
         res.detail = url
         if hasattr(res.meta, 'highlight'):
             res.fields_matched = dir(res.meta.highlight)
-        to_validate.append(res.url)
         if PROXY_THUMBS:
             # Proxy thumbnails from providers who don't provide SSL. We also
             # have a list of providers that have poor quality or no thumbnails,
@@ -111,8 +108,7 @@ def _post_process_results(search_results, request, filter_dead):
                 )
                 res[THUMBNAIL] = secure
         results.append(res)
-    if filter_dead:
-        validate_images(results, to_validate)
+
     return results
 
 
@@ -161,6 +157,7 @@ class SearchImages(APIView):
                 index=search_index,
                 page_size=page_size,
                 ip=hashed_ip,
+                filter_rot=params.data[FILTER_DEAD],
                 page=page_param
             )
         except ValueError:
@@ -171,8 +168,7 @@ class SearchImages(APIView):
                 }
             )
 
-        filter_dead = params.data[FILTER_DEAD]
-        results = _post_process_results(search_results, request, filter_dead)
+        results = _post_process_results(search_results, request)
         serialized_results = ImageSerializer(results, many=True).data
         page_count = _get_page_count(search_results, page_size)
 
@@ -250,7 +246,7 @@ class BrowseImages(APIView):
                 }
             )
         filter_dead = params.data[FILTER_DEAD]
-        results = _post_process_results(browse_results, request, filter_dead)
+        results = _post_process_results(browse_results, request)
         serialized_results = ImageSerializer(results, many=True).data
         page_count = _get_page_count(browse_results, page_size)
         response_data = {
