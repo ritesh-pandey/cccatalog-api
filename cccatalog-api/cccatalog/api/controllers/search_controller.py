@@ -66,6 +66,7 @@ def _get_dead_items(s: Search, start_page, page_size):
     start_slice = page_size * (start_page - 1)
     end_slice = page_size * 3
     _s = s[start_slice:end_slice]
+    _s = _s.extra(_source={"includes": ["identifier", "url"]})
     unfiltered_links = _s.execute()
     image_urls = [res.url for res in unfiltered_links]
     image_ids = [res.identifier for res in unfiltered_links]
