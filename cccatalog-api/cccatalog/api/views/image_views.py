@@ -226,7 +226,8 @@ class BrowseImages(APIView):
                 page=page_param,
                 lt=lt,
                 li=li,
-                ip=hash(_get_user_ip(request))
+                ip=hash(_get_user_ip(request)),
+                filter_rot=params.data[FILTER_DEAD]
             )
         except ValueError:
             return Response(
@@ -243,7 +244,6 @@ class BrowseImages(APIView):
                     .format(provider)
                 }
             )
-        filter_dead = params.data[FILTER_DEAD]
         results = _post_process_results(browse_results, request)
         serialized_results = ImageSerializer(results, many=True).data
         page_count = _get_page_count(browse_results, page_size)
@@ -265,7 +265,7 @@ class RelatedImage(APIView):
             uuid=identifier,
             index='image'
         )
-        filtered = _post_process_results(related, request, True)
+        filtered = _post_process_results(related, request)
         serialized_related = ImageSerializer(filtered, many=True).data
         response_data = {
             'result_count': related.hits.total,

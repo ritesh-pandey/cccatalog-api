@@ -225,13 +225,14 @@ def related_images(uuid, index):
         min_term_freq=1,
         max_query_terms=50
     )
+    s = _exclude_dead(s, 1, 20)
     response = s.execute()
 
     return response
 
 
 def browse_by_provider(
-        provider, index, page_size, ip, page=1, lt=None, li=None):
+        provider, index, page_size, ip, filter_rot, page=1, lt=None, li=None):
     """
     Allow users to browse image collections without entering a search query.
     """
@@ -243,6 +244,8 @@ def browse_by_provider(
     s = s.filter('bool', should=provider_filter, minimum_should_match=1)
     licenses = lt if lt else li
     s = _filter_licenses(s, licenses)
+    if filter_rot:
+        s = _exclude_dead(s, page, page_size)
     search_response = s.execute()
     return search_response
 
