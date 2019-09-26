@@ -64,7 +64,7 @@ def _get_dead_items(s: Search, start_page, page_size):
     :return: A list of UUIDs with broken links.
     """
     start_slice = page_size * (start_page - 1)
-    end_slice = page_size * start_page * 3
+    end_slice = start_slice + (page_size * 3)
     _s = s[start_slice:end_slice]
     _s = _s.extra(_source={"includes": ["identifier", "url"]})
     unfiltered_links = _s.execute()
