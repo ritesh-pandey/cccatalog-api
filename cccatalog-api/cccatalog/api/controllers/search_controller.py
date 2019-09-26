@@ -10,6 +10,7 @@ from cccatalog.api.models import ContentProvider
 from rest_framework import serializers
 from cccatalog.api.utils.validate_images import validate_images
 import logging as log
+import time
 
 ELASTICSEARCH_MAX_RESULT_WINDOW = 10000
 CACHE_TIMEOUT = 10
@@ -57,8 +58,7 @@ def _quote_escape(query_string):
 def _get_dead_items(s: Search, start_page, page_size):
     """
     Given a search object, look ahead several pages and check that the links
-    are still valid. Return a list of broken links, which can then subsequently
-    be excluded from the search results.
+    are still valid. Return a list of broken links.
 
     :param s:
     :return: A list of UUIDs with broken links.
@@ -88,13 +88,12 @@ def _exclude_id_list(s: Search, identifiers: list):
 def _exclude_dead(s: Search, start_page, page_size):
     """
     Given a search query, filter out the dead links.
-    :param s:
-    :param start_page:
-    :param page_size:
-    :return:
     """
+    start_time = time.time()
     dead = _get_dead_items(s, start_page, page_size)
     s = _exclude_id_list(s, dead)
+    total_time = time.time() - start_time
+    log.info('Excluded dead links in {}'.format(total_time))
     return s
 
 
