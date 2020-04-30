@@ -304,3 +304,7 @@ if EMAIL_HOST_USER or EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# Settings for license parsing and caching at startup
+LICENSE_RDF_PATH = os.environ.get('LICENSE_RDF_PATH', 'cccatalog/licenses.rdf')
+ALL_LICENSES_CACHE_KEY = os.environ.get('ALL_LICENSES', 'all_licenses')

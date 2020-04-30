@@ -20,7 +20,7 @@ from django.views.generic.base import RedirectView
 from cccatalog.api.views.image_views import SearchImages, ImageDetail,\
     Watermark, RelatedImage, OembedView, ReportImageView
 from cccatalog.api.views.site_views import HealthCheck, ImageStats, Register, \
-    CheckRates, VerifyEmail
+    CheckRates, VerifyEmail, Licenses
 from cccatalog.api.views.link_views import CreateShortenedLink, \
     ResolveShortenedLink
 from cccatalog.settings import API_VERSION, WATERMARK_ENABLED
@@ -110,7 +110,8 @@ versioned_paths = [
     ),
     path('link', CreateShortenedLink.as_view(), name='make-link'),
     path('link/<str:path>', ResolveShortenedLink.as_view(), name='resolve'),
-    path('oembed', OembedView.as_view(), name='oembed')
+    path('oembed', OembedView.as_view(), name='oembed'),
+    path('license', Licenses.as_view()),
 ]
 if WATERMARK_ENABLED:
     versioned_paths.append(
@@ -134,5 +135,5 @@ urlpatterns = [
         schema_view.with_ui('redoc', cache_timeout=15),
         name='schema-redoc'
     ),
-    path('v1/', include(versioned_paths))
+    path('v1/', include(versioned_paths)),
 ]

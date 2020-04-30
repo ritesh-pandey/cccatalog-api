@@ -39,3 +39,4 @@ djangorestframework-xml = "*"
 gevent = "*"
 future = {version = "*",python_version = "<=2.7"}
 ipaddress = {version = "*",python_version = "<=2.7"}
+rdflib = "*"

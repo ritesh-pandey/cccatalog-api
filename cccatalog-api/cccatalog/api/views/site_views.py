@@ -1,12 +1,14 @@
 import logging as log
 import secrets
 import smtplib
+from django.conf import settings
 from django.core.mail import send_mail
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.views import APIView
 from rest_framework import serializers
 from cccatalog.api.controllers.search_controller import get_providers
+from cccatalog.api.licenses import parse_and_cache_licenses
 from cccatalog.api.serializers.oauth2_serializers import\
     OAuth2RegistrationSerializer, OAuth2RegistrationSuccessful, OAuth2KeyInfo
 from drf_yasg.utils import swagger_auto_schema
@@ -285,3 +287,22 @@ class CheckRates(APIView):
             'verified': verified
         }
         return Response(status=200, data=response_data)
+
+
+class Licenses(APIView):
+    """
+    Lists every possible valid Creative Commons license.
+
+    Each license in the response has:
+    - The license version number
+    - The license URL
+    - The jurisdiction
+    - The language code
+
+    """
+    swagger_schema = None
+
+    def get(self, request, format=None):
+        parse_and_cache_licenses()
+        response = cache.get(settings.ALL_LICENSES_CACHE_KEY)
+        return Response(response, status=200)
