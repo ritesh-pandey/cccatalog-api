@@ -2,8 +2,9 @@ from rdflib import Graph, Namespace
 from rdflib.namespace import DC, DCTERMS
 from rdflib.resource import Resource
 from django.conf import settings
-from django.core.cache import cache
+from django.core.cache import cache, caches
 
+WEB = caches['web']
 CC = Namespace('http://creativecommons.org/ns#')
 
 LICENSES = (
@@ -60,4 +61,4 @@ def parse_and_cache_licenses():
                     'jurisdiction': jurisdiction,
                     'language_code': language
                 })
-    cache.set(settings.ALL_LICENSES_CACHE_KEY, licenses)
+    WEB.set(settings.ALL_LICENSES_CACHE_KEY, licenses)

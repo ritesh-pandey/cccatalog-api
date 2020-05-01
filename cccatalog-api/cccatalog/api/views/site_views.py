@@ -16,12 +16,13 @@ from cccatalog.api.models import ContentProvider
 from cccatalog.api.models import ThrottledApplication, OAuth2Verification
 from cccatalog.api.utils.throttle import TenPerDay, OnePerSecond
 from cccatalog.api.utils.oauth2_helper import get_token_info
-from django.core.cache import cache
+from django.core.cache import cache, caches
 
 IDENTIFIER = 'provider_identifier'
 NAME = 'provider_name'
 FILTER = 'filter_content'
 URL = 'domain_name'
+WEB = caches['web']
 
 
 class HealthCheck(APIView):
@@ -303,6 +304,5 @@ class Licenses(APIView):
     swagger_schema = None
 
     def get(self, request, format=None):
-        parse_and_cache_licenses()
-        response = cache.get(settings.ALL_LICENSES_CACHE_KEY)
+        response = WEB.get(settings.ALL_LICENSES_CACHE_KEY)
         return Response(response, status=200)

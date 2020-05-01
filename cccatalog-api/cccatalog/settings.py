@@ -54,7 +54,7 @@ CRON_CLASSES = [
 
 INSTALLED_APPS = [
     'cccatalog',
-    'cccatalog.api',
+    'cccatalog.api.apps.ApiConfig',
     'drf_yasg',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -152,6 +152,11 @@ CACHES = {
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
+    },
+    # For caching data like license on webserver
+    'web': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'TIMEOUT': None
     }
 }
 
